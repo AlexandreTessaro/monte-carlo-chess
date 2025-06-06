@@ -1,71 +1,90 @@
 import chess
+import chess.pgn
 import random
-import pandas as pd
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import pandas as pd
 
-# === CONFIGURAÇÕES ===
-N_SIMULATIONS = 10_000
-MAX_PLIES = 40
+# Número de jogadas (plies) por partida - aumentamos para permitir desfechos
+MAX_PLIES = 100
+NUM_SIMULATIONS = 10000
 
+# Aberturas a serem simuladas
 OPENINGS = {
     "e4": ["e4"],
     "d4": ["d4"],
     "Sicilian Defense": ["e4", "c5"],
-    "Ruy Lopez": ["e4", "e5", "Nf3", "Nc6", "Bb5"],
+    "Ruy Lopez": ["e4", "e5", "Nf3", "Nc6", "Bb5"]
 }
 
-# === FUNÇÃO DE SIMULAÇÃO INDIVIDUAL ===
-def simulate_one_game(opening_moves):
+def simulate_random_game(opening_moves):
     board = chess.Board()
-    try:
-        for move in opening_moves:
+    
+    # Aplica os lances da abertura
+    for move in opening_moves:
+        try:
             board.push_san(move)
-    except:
-        return "invalid"
+        except:
+            return "*"  # abertura inválida
 
-    for _ in range(MAX_PLIES):
-        if board.is_game_over():
-            break
-        move = random.choice(list(board.legal_moves))
+    plies = 0
+    while not board.is_game_over() and plies < MAX_PLIES:
+        legal_moves = list(board.legal_moves)
+        move = random.choice(legal_moves)
         board.push(move)
+        plies += 1
 
-    result = board.result()
-    if result not in ["1-0", "0-1", "1/2-1/2"]:
-        return "invalid"
-    return result
+    if board.is_game_over():
+        return board.result()
+    else:
+        # Aplica heurística se a partida não terminou
+        return evaluate_material(board)
 
-# === FUNÇÃO PARA RODAR SIMULAÇÕES PARA UMA ABERTURA ===
-def simulate_opening(opening_name_and_moves):
-    opening_name, moves = opening_name_and_moves
-    outcomes = {"1-0": 0, "0-1": 0, "1/2-1/2": 0, "invalid": 0}
-    for _ in range(N_SIMULATIONS):
-        result = simulate_one_game(moves)
-        outcomes[result] += 1
-    outcomes["opening"] = opening_name
-    return outcomes
+def evaluate_material(board):
+    """Heurística simples baseada na soma de valores das peças"""
+    values = {'P': 1, 'N': 3, 'B': 3, 'R': 5, 'Q': 9}
+    white_score = 0
+    black_score = 0
+    for piece in board.piece_map().values():
+        symbol = piece.symbol()
+        value = values.get(symbol.upper(), 0)
+        if symbol.isupper():
+            white_score += value
+        else:
+            black_score += value
 
-# === EXECUTAR EM PARALELO ===
+    if white_score > black_score:
+        return "1-0"
+    elif black_score > white_score:
+        return "0-1"
+    else:
+        return "1/2-1/2"
+
+def run_simulations():
+    results = []
+
+    print("Simulating openings:")
+    for name, moves in tqdm(OPENINGS.items()):
+        outcomes = {"1-0": 0, "0-1": 0, "1/2-1/2": 0, "*": 0}
+
+        for _ in range(NUM_SIMULATIONS):
+            result = simulate_random_game(moves)
+            outcomes[result] += 1
+
+        total_valid = NUM_SIMULATIONS - outcomes["*"]
+        results.append({
+            "opening": name,
+            "1-0": outcomes["1-0"],
+            "0-1": outcomes["0-1"],
+            "1/2-1/2": outcomes["1/2-1/2"],
+            "invalid": outcomes["*"],
+            "white_win_rate": outcomes["1-0"] / NUM_SIMULATIONS,
+            "black_win_rate": outcomes["0-1"] / NUM_SIMULATIONS,
+            "draw_rate": outcomes["1/2-1/2"] / NUM_SIMULATIONS
+        })
+
+    return pd.DataFrame(results)
+
 if __name__ == "__main__":
-    with ProcessPoolExecutor() as executor:
-        futures = [
-            executor.submit(simulate_opening, (name, moves))
-            for name, moves in OPENINGS.items()
-        ]
-
-        results = []
-        for future in tqdm(as_completed(futures), total=len(OPENINGS), desc="Simulating openings"):
-            results.append(future.result())
-
-    # === RESULTADOS EM TABELA ===
-    df_results = pd.DataFrame(results)
-    df_results = df_results[["opening", "1-0", "0-1", "1/2-1/2", "invalid"]]
-    df_results["white_win_rate"] = df_results["1-0"] / N_SIMULATIONS
-    df_results["black_win_rate"] = df_results["0-1"] / N_SIMULATIONS
-    df_results["draw_rate"] = df_results["1/2-1/2"] / N_SIMULATIONS
-
+    df = run_simulations()
     print("\n=== Resultados das Simulações ===")
-    print(df_results.round(4))
-
-    # (Opcional) salvar como CSV
-    df_results.to_csv("opening_simulation_results.csv", index=False)
+    print(df)
