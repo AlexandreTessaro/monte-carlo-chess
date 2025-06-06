@@ -1,14 +1,10 @@
 import chess
-import chess.pgn
 import random
 from tqdm import tqdm
 import pandas as pd
 
-# Número de jogadas (plies) por partida - aumentamos para permitir desfechos
 MAX_PLIES = 100
-NUM_SIMULATIONS = 10000
 
-# Aberturas a serem simuladas
 OPENINGS = {
     "e4": ["e4"],
     "d4": ["d4"],
@@ -18,13 +14,12 @@ OPENINGS = {
 
 def simulate_random_game(opening_moves):
     board = chess.Board()
-    
-    # Aplica os lances da abertura
+
     for move in opening_moves:
         try:
             board.push_san(move)
         except:
-            return "*"  # abertura inválida
+            return "*"
 
     plies = 0
     while not board.is_game_over() and plies < MAX_PLIES:
@@ -36,11 +31,9 @@ def simulate_random_game(opening_moves):
     if board.is_game_over():
         return board.result()
     else:
-        # Aplica heurística se a partida não terminou
         return evaluate_material(board)
 
 def evaluate_material(board):
-    """Heurística simples baseada na soma de valores das peças"""
     values = {'P': 1, 'N': 3, 'B': 3, 'R': 5, 'Q': 9}
     white_score = 0
     black_score = 0
@@ -59,32 +52,40 @@ def evaluate_material(board):
     else:
         return "1/2-1/2"
 
-def run_simulations():
+def run_simulations(num_simulations):
     results = []
 
-    print("Simulating openings:")
+    print(f"\nSimulating {num_simulations} games per opening:")
     for name, moves in tqdm(OPENINGS.items()):
         outcomes = {"1-0": 0, "0-1": 0, "1/2-1/2": 0, "*": 0}
 
-        for _ in range(NUM_SIMULATIONS):
+        for _ in range(num_simulations):
             result = simulate_random_game(moves)
             outcomes[result] += 1
 
-        total_valid = NUM_SIMULATIONS - outcomes["*"]
         results.append({
             "opening": name,
+            "num_simulations": num_simulations,
             "1-0": outcomes["1-0"],
             "0-1": outcomes["0-1"],
             "1/2-1/2": outcomes["1/2-1/2"],
             "invalid": outcomes["*"],
-            "white_win_rate": outcomes["1-0"] / NUM_SIMULATIONS,
-            "black_win_rate": outcomes["0-1"] / NUM_SIMULATIONS,
-            "draw_rate": outcomes["1/2-1/2"] / NUM_SIMULATIONS
+            "white_win_rate": outcomes["1-0"] / num_simulations,
+            "black_win_rate": outcomes["0-1"] / num_simulations,
+            "draw_rate": outcomes["1/2-1/2"] / num_simulations
         })
 
     return pd.DataFrame(results)
 
 if __name__ == "__main__":
-    df = run_simulations()
-    print("\n=== Resultados das Simulações ===")
-    print(df)
+    all_results = pd.concat([
+        run_simulations(1000),
+        run_simulations(5000),
+        run_simulations(10000)
+    ], ignore_index=True)
+
+    print("\n=== Resultados Comparativos ===")
+    print(all_results)
+
+    # Exportar para CSV (opcional)
+    all_results.to_csv("resultados_aberturas_monte_carlo.csv", index=False)
